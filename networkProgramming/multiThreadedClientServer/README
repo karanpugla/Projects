@@ -1,0 +1,134 @@
+=================
+CSE 533: Network Programming
+Assignment 1
+Karan Pugla
+SBU ID: 110452661
+=================
+
+1. INSTALL
+===========
+FILES: tcpechotimecli.c, tcpechotimesrv.c, echo_cli.c, time_cli.c,common.h, Makefile, README
+
+copy all FILES in a directory
+cd to the directory where Makefile is located
+run 'make all'
+Make sure following files are generated in current directory
+OUTPUT FILES: client, server, echo_cli, time_cli
+
+Note: There should not be any problem in compilation.
+      There is one warning message when Steven's readline function is compiled. 
+      Warning is due to Steven's library and not because of assignment 1 code.
+      A working copy of compiled sources ready to execute is available at :
+
+      /home/stufs1/kpugla/a1_final
+
+2. RUN
+===========
+a. Open two terminal windows.
+b. cd to directory where Makefile is generated in both terminals.
+c. In one terminal start './client <server IP or Domain name>' and in other start './server'.
+
+
+2. DESIGN
+===========
+A. TCP CLIENT
+-- All critcal messages are prefixed with '!!' while informational messages are prefixed with '#'.
+-- Robustness has been added using select() and Steven's helper functions.
+-- If number of arguments to the client are not proper, usage is displayed.
+-- If user starts client by providing malformed IP or a  FQDN that cannot be resolved by DNS,
+   exit as we cannot proceed without an IP and show proper error message to user.
+-- If user starts client by providing FQDN and that FQDN is resolvable to IP, save numeric IP.
+-- If user starts client by providing numeric IP, try to get FQDN from DNS for this IP. If FQDN is available, save it. 
+   Otherwise make FQDN as "<No name found>".
+-- If we have a IP to work with we proceed and show to user details of the server as follows:
+   #Server is <No name found>(192.168.1.1)
+   OR
+   #Server is <Resolved FQDN>(192.168.1.1)
+-- Register signal handler for SIGCHLD and SIGINT. SIGINT is registered for parent so that if child is still running 
+   parent can clean it before aborting itself.
+-- Fork a child process based on what user requested. Before forking, create pipe so that child's error messages can be seen 
+   on parent's window.
+-- To make client more responsive and robust, helper functions from Steven's library are used for error handling.
+   Some helper functions from the library are overriden and modified to adapt for custom needs like process cleanup.
+   Since Steven's error handling functions display error messages over 'stderr', child process's 'stderr' is replaced with the 
+   pipe so that parent can catch and print the output.
+-- After forking child, parent waits for child process to terminate. Meanwhile, any error messages from child is printed
+   on parent's 'stdout'.
+-- If user mistakenly tries to use parent's terminal while child terminal is still active, user is informed and shown an error
+   message.
+-- By keeping design of echo_client according to Steven's suggested design, EPIPE signal is avoided, by using Shutdown 
+   instead of close.
+  
+B. TCP SERVER
+-- All critcal messages are prefixed with '!!' while informational messages are prefixed with '#'.
+-- There are two thread types ECHO_THREAD_TYPE and TIME_THREAD_TYPE.
+-- A new thread is created for every client request. 'doit' is the main thread function which calls str_time or str_echo 
+   based on argument passed to 'doit' while creating an instance of thread.
+-- To avoid race conditions over argument given to 'doit', malloc for argument is done for every request just before creating
+   thread. Threads are responsible to 'free' the argument after using them.
+-- All necessary error handling is done and Steven's helper functions are used to make server more robust and error messages 
+   more responsive.
+-- SO_REUSEADDR is used with the help of Steven's Tcp_listen function.
+-- Fcntl is used to handle client reset before accept is called.
+   Since in Solaris, sockets returned by listen inherit flags from listen socket, care is taken to unset the flag for 
+   returned sockets.
+
+
+3. TEST CASES
+==============
+Test Case 1:
+------------
+  Run client without arguments or more than 1 argument.
+
+Expected Output:
+  Usage help and example usage message is displayed.
+
+Test Case 2:
+------------
+  Run client with malformed IP or unresolvable domain name.
+
+Expected Output:
+  User is informed about the error. 
+
+Test Case 3:
+------------
+  Run client before starting server.
+  Client invokes the requested service 
+
+Expected Output:
+  Server information is displayed to user and user is prompted for service.
+  The child terminates, parent catches its output and user is informed.
+
+Test Case 4:
+------------
+  Start the server. Start the client and let user input wrong service name
+
+Expected Output:
+  Client informs the user that wrong service name is entered and prompts again.
+
+
+Test Case 5:
+------------
+  Start the server. Start the client and let user input right service name.
+  Terminate child service process.
+
+Expected Output:
+ Child service process is created.
+ At server console, creation of new thread for the requested service is displayed
+ When child client process is terminated, user is informed by displaying message at parent's console.
+ When server thread is terminated, thread termination message is displayed at server's console.
+
+
+Test Case 6:
+------------
+  Start the server. Start the client and let user input right service name.
+  Terminate server.
+
+Expected Output:
+ Child service process is created.
+ At server console, creation of new thread for the requested service is displayed.
+ When server is terminated, child client process terminates and parent client process catches the error from pipe and 
+ informs the user with a message.
+
+ANY other test case can also be tried.
+---------------------------------

@@ -1,0 +1,171 @@
+=================
+CSE 533: Network Programming
+Assignment 2
+=================
+Karan Pugla         110452661
+Ravi Prakash Pandey 110384652
+
+
+1. INSTALL
+===========
+FILES: unpifiplus.h unprttplus.h myhdr.h server.c client.c myhdr.c rttplus.c get_ifi_info_plus.c Makefile README
+
+copy all FILES in a directory
+untar using command 'tar -xf ./a2.tar .'
+cd to the directory where Makefile is located
+run 'make all'
+Make sure following files are generated in current directory
+OUTPUT FILES: client, server
+
+2. RUN
+===========
+a. Open two terminal windows.
+b. cd to directory where Makefile is generated in both terminals.
+c. Make sure client.in and server.in files are available and exist in current directory before executing next step.
+d. In one terminal start './server' and in other start './client'.
+
+
+2. DESIGN
+===========
+
+Structure used by server to hold all sockets bounded on all interfaces
+typedef struct
+{
+  int sockfd; 
+  struct ifi_info *ifi; // Holds ifname,IP and netmask
+  struct in_addr  ifi_subnet; //Holds computed subnet
+}ifisockfdsubnet;
+
+Structure to hold all UDP connections in execution in server. Used to avoid forking of child server when connection already exists.(Client filename retransmission)
+typedef struct
+{
+  uint32_t cli_IP;
+  uint32_t cli_PORT;
+  uint32_t child_PID;
+  uint32_t valid;
+}udpconnections;
+
+File transfer message header. 
+typedef struct
+{
+  uint32_t seqno; // sequence # 
+  uint32_t ts;    // timestamp  when message was sent from server.(used to compute RTT)
+  uint32_t wnd;   // window size
+  char payload[500]; // data read from file
+}FTmsg;
+
+Structure used to hold all the parameters read from client.in
+struct client_in {
+    char *server_ip;
+    int server_port;
+    char *filename;
+    int r_wnd; //Receiver window size (in num of datagrams)
+    int seed;
+    float p;  // probability of packet loss. simulates congestion
+            // p = 0 => no congestion; p=1 => full congestion
+    int mu; //mean time for client thread to read the buffer
+};
+
+Structure used to define buffer where datagrams are read into and printed from.
+struct buffer {
+    int writefrm;
+    int wnd;
+    int mu;
+    FTmsg **buf;
+};
+
+
+TCP RELIABILITY and RETRANSMISSION 
+- All RTT measurements are done in microseconds and arithmetic is all integers instead of float.
+- rtt_init is modified to start first RTO as 3000000(3 seconds).
+- rtt_stop now performs int calculations on microseconds and not on seconds. 
+
+A. TCP RELIABILITY ,RETRANSMISSION & SLIDING-WINDOW AT SERVER
+- A TCP like handshake is done before file transfer begins.
+  
+  Client sends FILENAME
+  Server sends NEW PORT # and MAX DATAGRAMS client should expect.
+  Client allocates buffer and sends ACK
+
+- Server computes file size and determines total # of datagrams(DG) needed for file transmission.
+- Server tells client total number of DGs along with new port number. This information is sent to client by abusing  fields of   FTmsg during handshake. seqno of FTmsg is set to port number and ts of FTmsg is set to max DG number so that
+  client can allocate its buffers.
+- File data is sent in 500 bytes chunk. 12 bytes are used as File transfer header. So 512 byte size DGs are sent.
+- Datagrams are sent in decreasing order of sequence numbers. For e.g. if file size is 2001 bytes,then total 5= (2001/500 + 1)D  Gs will be sent in sequence number order 5 4 3 2 1.
+- After the handshake is done, server sits in sending loop until all DGs are sent. 
+  That is until sequence # reaches 1.
+- Window size is set equal to the one sent by client during handshake.
+- Before sending any DG, server checks if there is space in window.
+   If space in window, puts DG in window.
+   Reduce window size by 1 and send the DG.
+- A timeout alarm is set  for the first packet and later on updated as described below. In other words, alarm is not set 
+  for all the packets in window but only for the oldest ACKed packet.
+- Server has set its socket NON-BLOCKING, so it checks for any incoming ACKs during execution of loop without blocking.
+- If at any time during transmission an ACK is detected by server, all the DGs sent before the ACKed DG is freed from window
+  along with the DG being ACKed. This behaves as window sliding as freeing the DGs in window make space available for more DGs.
+  Also, timeout alarm is stopped and reinitialized for the now first packet in window if any.
+- If at any time window becomes full, a LOCK is notified on console. Since the server cannot proceed until lock is broken, 
+  server puts itself in a loop to keep on wating for ACK for any DG in window.
+- If an ACK comes, server slides window and lock is broken and transmission resumes.
+- During transmission a timeout can occur. To handle this a signal handler is registered for SIGALRM. This signal handler sets   timeout=1 flag so that the transmission loop of server do not get interupted due to the signal. Once the server transmission 
+  loop detects timeout flag is set it calls handle timeout routine.
+- Handle timeout routine resends all the packets in window and reinitializes the timeout alarm.
+
+
+B. TCP RELIABILITY ,RETRANSMISSION & SLIDING-WINDOW AT CLIENT
+- Reads in the arguments specified in client.in file in current directory and
+  stores them in a struct client_in.
+
+- Reads the Server IP from args from the struct above and determines if the
+  server is on same host or local to subnet or entirely on different subnet.
+  If server is on same host, it connects to the loopback address i.e. 127.0.0.1.
+  If the server is on same subnet then client chooses its IP on that subnet to
+  communicate.
+  If server on different subnet, then client chooses a random IP to connect to.
+
+- After determining the Server IP, the client connects to server on the
+  specified port in args above. It then verifies its IP address and server's
+  address and port using getsockname() and getpeername() respectively.
+
+- Client sends filename in the payload section of FTmsg structure to the server
+  on listening socket.
+
+- If the file doesnt exist, server sends ts variable in FTmsg to -1 to indicate
+  that file does not exist.
+  If it exits, then server sends the new port number for its connection socket
+  in seqno variable and the number of datagram sequences that file consists of
+  in ts variable.
+
+- Client on reading max datagram sequence number and new port, creates a buffer
+  of that length to store the datagrams to be read in by another thread whose
+  function is to print them on console. Client then connects to the new port and
+  sends an "ACK" to server indicating that it has received the new port and is
+  ready to accept the datagrams of file.
+
+- The datagrams are ordered in decreasing order of sequence starting from say
+  'x' and going down to '1', where 'x' is the max sequence datagram. The client
+  waits for the first datagram to arrive, puts it in buffer and spawns a Reader
+  thread to read the datagrams from the buffer if any exists. If not, then
+  Reader thread sleeps for a random time based on a random number retrieved from
+  exponential distribution based on a seed value.
+
+- Client then enters into a loop of sending ACKs for the datagram it has
+  received and the datgaram it is expecting from the server. If it encounters a
+  situation where the window is full, then it blocks and waits for the Reader
+  thread to consume the datagrams so that window could slide backwards to make
+  space for incoming datagrams. Till that time it keeps ACKing the packet it has
+  received so that server doesnt timeout in case.
+
+- The above procedure is followed till all the datagrams are received. The
+  client marks the end of file transfer by recieving a datagram of sequence 1 if
+  it has alread received the datagrams 2, 3, and so on till max sequence number.
+  After the file transfer, it sends and ACK for datagram 1 to the server telling
+  it has received the file completely.
+  The client then goes in TIME_WAIT state where it waits for 6s for the server
+  in case the ACK for datagram 1 was lost. If the ACK was lost, it retransmits
+  the ACK for datagram 1 once more and exits from loop of file retrieval.
+
+- The client then waits for Reader thread to print the datagrams in buffer, in
+  case it has not yet done so. Once done, the client exits successfully without
+  any issues.
+
