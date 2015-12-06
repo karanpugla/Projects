@@ -1,0 +1,259 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <link rel="shortcut icon"  href="favicon.png">
+
+    <title>IPS Intrusion Prevention System</title>
+
+    <!-- Bootstrap core CSS -->
+    <link href="bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link href="jquery-ui-themes/themes/smoothness/jquery-ui.css" rel="stylesheet">
+    <link href="jquery-ui.css" rel="stylesheet">
+    <link href="tabStyle.css" rel="stylesheet">
+
+    <!-- Custom styles for this template -->
+    <link href="signin.css" rel="stylesheet">
+    <script src="jquery.js"></script>
+    <script src="jquery-ui.js"></script>
+    <script src="sha1.js"></script>
+
+  </head>
+
+  <body style="background-image: url(http://192.168.56.101/ips/ips.jpg); background-size: cover; background-position: center -300px; background-repeat: no-repeat;">
+
+    <div class="container">
+	<div class="jumbotron" id="authenticate" style="background-color: rgba(238, 238, 238, 0.8);">
+	  <h1 class="center-block" style="width: 800px;"> Modular Intrusion Prevention System</h1>
+          <form class="form-signin">
+ 	   <h2 class="form-signin-heading">IPS Login</h2>
+ 	   <h4 id="authFail" style="display:none; color:red">Authentication Failed</h4>
+ 	   <label for="inputUsername" class="sr-only">Username</label>
+ 	   <input type="text" id="inputUsername" class="form-control" placeholder="Username" required autofocus>
+ 	   <label for="inputPassword" class="sr-only">Password</label>
+ 	   <input type="password" id="inputPassword" class="form-control" placeholder="Password" required>
+ 	   <button class="btn btn-lg btn-primary btn-block" type="submit">Sign in</button>
+          </form>
+        </div>
+
+
+
+    </div> <!-- /container -->
+        <div id="tabs" style="display: none;width:70%;height:600px;margin:0 auto;overflow:scroll">
+          <ul>
+            <li><a href="#tabs-1">Banned IPs</a></li>
+            <li><a href="#tabs-2">Failed Attempts</a></li>
+            <li><a href="#tabs-3">Configuration</a><li>
+          </ul>
+          <div id="tabs-1">
+          <table id="tableBannedIPs" class="table" style="width:100%">
+           <thead>
+	       <td>IP
+	       </td>
+	       <td>SERVICE
+	       </td>
+	       <td>TIMER
+	       </td>
+	       <td>TIME
+	       </td>
+               <td>REMOVE
+               </td>
+	   </thead>
+         </table>
+          </div>
+          <div id="tabs-2">
+            <ul id="failedAttemptsList"></ul>
+          <table id="tableFailedAttempts" class="table" style="width:100%">
+           <thead>
+	       <td>IP
+	       </td>
+	       <td>SERVICE
+	       </td>
+	       <td>TIME
+	       </td>
+	   </thead>
+         </table>
+          </div>
+       <div id="tabs-3">
+	 <ul id="configuration"></ul>
+	 <form id="changeconfig">
+	     <select id="service">
+    	     <option value="joomla">Joomla</option>
+             <option value="wordpress">Wordpress</option>
+             <option value="ssh">SSH</option>
+             <option value="phpmyadmin">PHPmyAdmin</option>
+             </select><br>
+             Time for which IP is banned:<input type="text" id="bantimer"  name="bantimer" placeholder=""/><br>
+             No of failed attempts allowed:<input type="text" id="threshold" name="threshold" placeholder=""/><br>
+	     Failed attempt interval:<input type="text" id="interval" name="interval" placeholder=""/><br>
+             <input type="submit" value="Submit"/>
+          </form>
+        </div>
+       </div>
+  </body>
+<script>
+$(function() {
+    $( "#tabs" ).tabs();
+  });
+AUTHENTICATE = 0
+GETBANNEDIPs = 1
+GETFAILEDATTEMPTs = 2
+AUTHSUCCESS = 3
+AUTHFAIL = 4
+BANNEDIP = 5
+UNBANNEDIP = 6
+FAILEDATTEMPT = 7
+UNBANIPs = 8
+CHANGECONFIG = 9
+
+
+authAttempt = 0
+webServer = '192.168.56.101:9001'
+username=''
+password=''
+bannedIPTimer = 0
+failedAttemptTimer = 0 
+$('.form-signin').submit(function(event){
+    event.preventDefault();
+    $('#authFail').slideUp()
+    username = $('#inputUsername').val()
+    password = SHA1($('#inputPassword').val())
+    
+    if( ! authAttempt || typeof(ws) == 'undefined'){
+        authAttempt = 1
+	ws = new WebSocket("ws://" + webServer)
+        ws.onerror = function() {delete(ws)}
+        ws.onmessage = function(msg){
+            console.log('Received message: ' + msg.data)
+	    window.msg = JSON.stringify(msg.data)
+	    msg = JSON.parse(msg.data)
+
+	    if(msg.action == AUTHENTICATE){
+	        if(msg.data == AUTHSUCCESS) {
+	            console.log('AUTHSUCCESS')
+		    $('#authenticate').slideUp(function(){$('#tabs').show()})
+                    bannedIPTimer = setInterval(getBannedIPs, 3000)
+                    //failedAttemptTimer = setInterval(getFailedAttempts, 3000)
+                    getBannedIPs()
+		    getFailedAttempts()
+	        }
+	        else if(msg.data == AUTHFAIL){
+	            console.log('AUTHFAIL')
+                    $('#authFail').slideDown()
+	        }
+            }
+	    else if(msg.action == GETBANNEDIPs){
+	        console.log("Banned IPs: " + msg.data.length)
+		if(msg.data.length){
+		    for(i in msg.data){
+		        ip = msg.data[i].IP
+			time = msg.data[i].time
+			timer = msg.data[i].timer.toFixed(0)
+			showBannedIP(ip, time, timer, msg.data[i].service)
+		    }
+		}
+		else
+		    console.log("No Banned IPs")
+	    }
+	    else if(msg.action == GETFAILEDATTEMPTs){
+	        console.log("Failed Attempts: " + msg.data.length)
+		if(msg.data.length){
+		    for(i in msg.data){
+		        ip = msg.data[i].IP
+			attempts = msg.data[i].attempts
+			showFailedAttempt(ip, attempts, msg.data[i].service)
+		    }
+		}
+		else
+		    console.log("No Failed Attempts")
+	    }
+	    else if(msg.action == FAILEDATTEMPT){
+	        showFailedAttempt(msg.data.IP, [msg.data.time], msg.data.service) 
+	    }
+	    else if(msg.action == BANNEDIP){
+	        showBannedIP(msg.data.IP, msg.data.time, msg.data.timer.toFixed(0), msg.data.service) 
+	    }
+	    else if(msg.action == UNBANNEDIP || msg.action == UNBANIPs){
+	        $(document.getElementById(msg.data.IP + msg.data.service)).remove()
+	    }
+
+        }
+        ws.onopen = authenticate
+    }
+    else{
+    username = $('#inputUsername').val()
+    password = SHA1($('#inputPassword').val())
+        authenticate()
+    }
+})
+
+$("#changeconfig").submit(function(event){
+    event.preventDefault();
+    $('#authFail').slideUp()
+    bantimer = $('#bantimer').val()
+    threshold = $('#threshold').val()
+    interval = $('#interval').val()
+    service = $('#service').val()
+    console.log("send configuration from client")
+    m = {action: CHANGECONFIG, data: {bantimer: bantimer, threshold: threshold, interval: interval, service: service}}
+    ws.send(JSON.stringify(m))
+})
+
+function authenticate(){
+        msg = {action: AUTHENTICATE, data:{username:username, password:password}}
+        ws.send(JSON.stringify(msg))
+}
+
+function getBannedIPs(){
+    console.log("getBannedIPs")
+    m = {action: GETBANNEDIPs, data: {username: username, password: password}}
+    ws.send(JSON.stringify(m))
+}
+
+function getFailedAttempts(){
+    console.log("getFailedAttempts")
+    m = {action: GETFAILEDATTEMPTs, data: {username: username, password: password}}
+    ws.send(JSON.stringify(m))
+}
+
+function showFailedAttempt(ip, attemptsArr, service){
+    console.log("showFailedAttempt ip=" + ip + " time=" + JSON.stringify(attemptsArr) )
+    for(i=0;i<attemptsArr.length;i++){
+        $('<tr><td>'+ip+'</td><td>'+service+'</td><td>'+attemptsArr[i]+'</td></tr>').appendTo($('#tableFailedAttempts thead'))
+    }
+}
+
+function changeConfig(){
+    console.log("send configuration from client")
+    m = {action: CHANGECONFIG, data: {username: username, password: password}}
+    ws.send(JSON.stringify(m))
+}
+
+function showBannedIP(ip, iptime, iptimer, service){
+    console.log("showBannedIP ip=" + ip +  " " + iptime + " " + iptimer  )
+
+    if ($(document.getElementById(ip+service)).length == 0){
+console.log('IF')
+    $('<tr id="'+ip+service+'"><td>'+ip+'</td><td>'+service+'</td><td>'+iptimer+'</td><td>'+iptime+'</td><td><button id="button'+ip+service+'" type="button">Unban</button></td></tr>').appendTo($('#tableBannedIPs thead'))
+        $(document.getElementById('button'+ip+service)).click(function(event){
+	 m = {action: UNBANIPs, data: {username: username, password: password, IP:ip, service: service}}
+	 ws.send(JSON.stringify(m))
+//         $(document.getElementById(ip+service)).remove()
+	})
+   }
+   else{
+console.log('else')
+	$($(document.getElementById(ip+service)).children()[2]).html(iptimer)
+    }
+}
+
+
+</script>
+</html>
+

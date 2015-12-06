@@ -1,0 +1,41 @@
+Please refer to the report for detailed installation instructions 
+
+Who did what?
+
+Design and Framework:
+Karan Pugla
+
+Project Report 
+ Bhavana Raj Kanthur Murnad, Srigowri Hunsur Gurunath
+
+FrontEnd (Client) :
+Websocket server for communication protocol and message formats between client and server - Karan Pugla
+Web login, authentication and live auto UnBanTimer - Karan Pugla
+Configuration for BanTimer and threshold for failed attempts for services - Srigowri Hunsur Gurunath
+
+BackEnd (Server) :
+
+File monitoring and pattern matching - Karan Pugla, Varun Shastry
+Configuration for BanTimer and threshold for failed attempts for services - Bhavana Raj Kanthur Murnad,
+ Srigowri Hunsur Gurunath
+Modular logging - Varun Shastry
+Auto unban and managing iptables - Karan Pugla, Nargis Nigar
+Implementation of  Unban IP after the ban time is expired - Bhavana Raj Kanthur Murnad
+Creation of config file - Varun Shastry, Nargis Nigar
+Logging - Nargis Nigar
+Implementation of algorithm to ban IP when threshold failed attempts exceeded in a given interval - Karan Pugla
+
+
+Testing:
+Bhavana Raj Kanthur Murnad, Karan Pugla, Nargis Nigar, Srigowri Hunsur Gurunath, Varun Shastry
+
+
+Note:
+
+1. The code is also available in github and the handle is
+https://github.com/vpshastry/systemsecurity
+
+2. We have also included our VM setup which is ready to run. Please run the script /root/ips/ips.py  and launch the browser with url “http://192.168.56.101/ips
+
+Please find the link for vm 
+https://drive.google.com/a/stonybrook.edu/folderview?id=0BwjApofdBl7Jcl9yNnAxWHp4b2c&usp=sharing
