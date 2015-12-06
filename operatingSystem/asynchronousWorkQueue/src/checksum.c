@@ -73,7 +73,7 @@ int checksum_file( char inp_name[], char checksum[])
 	ret = crypto_shash_final(desc, out);
 
 	for( i = 0 ; i < 16; i++){
-		sprintf(temp, "%02x", out[i] & 0xff);
+		sprintf(temp, "%.2x", out[i] & 0xff);
 		strncpy( &checksum[i*2], &temp[0], 2);
 	}
 	checksum[32] = '\0';

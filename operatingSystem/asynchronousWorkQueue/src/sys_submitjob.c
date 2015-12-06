@@ -37,7 +37,7 @@ struct workStatusQueue_t {
 
 
 struct workqueue_struct *common_queue;
-struct workqueue_struct *common_priority_queue;
+//struct workqueue_struct *common_priority_queue;
 struct workStatusQueue_t workStatusQueue;
 
 static int copy_work_status(int filter, char *buf, int bufsize);
@@ -65,9 +65,9 @@ int job_compress_decompress(char inputf[], char outputf[], char alg[], int decom
 	return compress_decompress_file(inputf, outputf, alg, decomp, delInp);
 }
 
-int job_ids = 0;
+int job_ids = 1;
 
-static void print_worker(struct work_struct *work)
+static void queue_worker(struct work_struct *work)
 {
 	int err;
 	struct work_params *params;
@@ -118,7 +118,7 @@ static void print_worker(struct work_struct *work)
 		params->jobRequest->result = err;
 	} else {
 		printk("print_worker err=%d\n", err);
-		params->jobRequest->status = -EAGAIN;
+		params->jobRequest->status = err;
 	}
 	spin_unlock(&workStatusQueueLock);
 
@@ -195,29 +195,20 @@ asmlinkage long submitjob(void *arg, int argslen)
 			goto err;
 		}
 
+		printk("Job type is %d\n", job->type);
+
 		job->status = STATUS_PENDING;
 		job->jobId = job_ids++;
 		work->jobRequest = job;
 		work->pid = get_task_pid(current, PIDTYPE_PID);
-		printk("work->pid=%p, current.pid=%d\n", work->pid, current->pid);
-//		if (work->pid == NULL) {
-//			printk("cannot get current task's struct pid\n");
-//			error = -EAGAIN;
-//			goto err;
-//		}
 		tmp->jobRequest = job;
-		// Put same pointer in both the above assignments.
 
 
 		work->task = current;
-		INIT_WORK(&work->work, print_worker);
-		if (job->priority == NORMAL_PRIORITY) {
-			queue_work(common_queue, &work->work);
-		} else if (job->priority == HIGH_PRIORITY){
-			queue_work(common_priority_queue, &work->work);
-		}
-		tmp->work = &work->work;
+		INIT_WORK(&work->work, queue_worker);
 		spin_lock(&workStatusQueueLock);
+		queue_work_priority(common_queue, &work->work);
+		tmp->work = &work->work;
 		//get spinlock
 		list_add_tail(&(tmp->list), &(workStatusQueue.list));
 		spin_unlock(&workStatusQueueLock);
@@ -257,55 +248,32 @@ static int change_priority(int job_id, int priority){
 	list_for_each_safe(pos, q, &(workStatusQueue.list)) {
                 tmp = list_entry(pos, struct workStatusQueue_t, list);
                 if (tmp->jobRequest->jobId == job_id && tmp->jobRequest->priority != priority) {
-                        //if(tmp->jobRequest->status == STATUS_PENDING) {
-				printk("Camehere1\n");
-                                error = cancel_work_sync(tmp->work);
-                                printk("Removed job from queue: %d\n", error);
-                                if(error == 1){
-                                        //list_del(pos);
-                                        //kfree(tmp->jobRequest);
-                                        //kfree(tmp);
-					printk("Camehere2\n");
-					tmp->jobRequest->priority = priority;
-					work = kmalloc(sizeof(struct work_params), GFP_KERNEL);
-					if(!work){
-						error = -ENOMEM;
-						goto out_release_lock;
-					}
-					work->jobRequest = tmp->jobRequest;
-					work->task = current;
-					INIT_WORK(&work->work, print_worker);
-                			if (priority == NORMAL_PRIORITY) {
-                        			queue_work(common_queue, &work->work);
-                			} else if (priority == HIGH_PRIORITY){
-                        			queue_work(common_priority_queue, &work->work);
-                			} else {
-						error = -EINVAL;
-						goto out_free_work;
-					}
-                			tmp->work = &work->work;
-                                } else {
-					printk("Camehere3\n");
-					error = -EINVAL;
+			error = cancel_work_sync(tmp->work);
+                        if(error == 1){
+				tmp->jobRequest->priority = priority;
+				work = kmalloc(sizeof(struct work_params), GFP_KERNEL);
+				if(!work){
+					error = -ENOMEM;
 					goto out_release_lock;
 				}
-				break;
-                        //}
+				work->jobRequest = tmp->jobRequest;
+				work->pid = get_task_pid(current, PIDTYPE_PID);
+				work->task = current;
+				INIT_WORK(&work->work, queue_worker);
+                        	queue_work_priority(common_queue, &work->work);
+                		tmp->work = &work->work;
+			} else {
+				error = -EINVAL;
+				goto out_release_lock;
+			}
+			break;
                 } else {
 			error = -EINVAL;
 		}
         }
-        //release spinlock
-	out_free_work:
-		if(error < 0){
-			kfree(work);
-		}
 	out_release_lock:
         	spin_unlock(&workStatusQueueLock);
-       // out:
 		return error;
-
-
 }
 
 static int delete_job(int job_id) 
@@ -318,16 +286,13 @@ static int delete_job(int job_id)
 	list_for_each_safe(pos, q, &(workStatusQueue.list)) {
 		tmp = list_entry(pos, struct workStatusQueue_t, list);
 		if (tmp->jobRequest->jobId == job_id) {
-			//if(tmp->jobRequest->status == STATUS_PENDING) {
-				error = cancel_work_sync(tmp->work);
-				printk("Removed job from queue: %d\n", error);
-				if(error == 1){
-					list_del(pos);
-					kfree(tmp->jobRequest);
-					kfree(tmp);
-				}
-				break;
-			//}
+			error = cancel_work_sync(tmp->work);
+			if(error == 1){
+				list_del(pos);
+				kfree(tmp->jobRequest);
+				kfree(tmp);
+			}
+			break;
 		}
 	}
 	//release spinlock
@@ -348,18 +313,18 @@ static int copy_work_status(int filter, char *buf, int bufsize)
 		tmp = list_entry(pos, struct workStatusQueue_t, list);
 		if (filter == 0 || (filter == 1 && (tmp->jobRequest->status == STATUS_COMPLETE || tmp->jobRequest->status < 0))) {
 			if (tmp->jobRequest->status < 0) {
-				snprintf(ker_buf, 100, "Job Id: %d, ERROR: %d\n", tmp->jobRequest->jobId, tmp->jobRequest->status);
+				snprintf(ker_buf, 100, "Error in Job: \n\tID: %d\n\tERROR: %d\n", tmp->jobRequest->jobId, tmp->jobRequest->status);
 			} else {
 				if(tmp->jobRequest->type == COMPRESS){
-					snprintf(ker_buf, 100,"Job Id: %d, Compressed File Size: %d\n", tmp->jobRequest->jobId, tmp->jobRequest->result);
+					snprintf(ker_buf, 100,"Completed Job: \n\tID: %d\n\tCompressed File Size: %d\n", tmp->jobRequest->jobId, tmp->jobRequest->result);
 				} else if(tmp->jobRequest->type == DECOMPRESS){
-					snprintf(ker_buf, 100,"Job Id: %d, Decompressed File Size: %d\n", tmp->jobRequest->jobId, tmp->jobRequest->result);
+					snprintf(ker_buf, 100,"Completed Job: \n\tID: %d\n\tDecompressed File Size: %d\n", tmp->jobRequest->jobId, tmp->jobRequest->result);
 				} else if(tmp->jobRequest->type == ENCRYPT){
-					snprintf(ker_buf, 100,"Job Id: %d, Encryption successful\n", tmp->jobRequest->jobId);
+					snprintf(ker_buf, 100,"Completed Job: \n\tID: %d\n\tEncryption successful\n", tmp->jobRequest->jobId);
 				} else if(tmp->jobRequest->type == DECRYPT){
-					snprintf(ker_buf, 100,"Job Id: %d, Decryption successful\n", tmp->jobRequest->jobId);
+					snprintf(ker_buf, 100,"Completed Job: \n\tID: %d\n\tDecryption successful\n", tmp->jobRequest->jobId);
 				}else if(tmp->jobRequest->type == CHECKSUM){
-					snprintf(ker_buf, 100,"Job Id: %d, File Checksum: %s\n", tmp->jobRequest->jobId, tmp->jobRequest->checksumResult);
+					snprintf(ker_buf, 100,"Completed Job: \n\tID: %d\n\tFile Checksum: %s\n", tmp->jobRequest->jobId, tmp->jobRequest->checksumResult);
 				}
 				
 			}
@@ -388,7 +353,7 @@ static int __init init_sys_submitjob(void)
 		sysptr = submitjob;
 
 	common_queue = create_workqueue("async_events");
-	common_priority_queue = alloc_workqueue("async_priority_events", WQ_MEM_RECLAIM | WQ_HIGHPRI, 1);
+	//common_priority_queue = alloc_workqueue("async_priority_events", WQ_MEM_RECLAIM | WQ_HIGHPRI, 1);
 	INIT_LIST_HEAD(&workStatusQueue.list);
 	spin_lock_init(&workStatusQueueLock);
 	return 0;
@@ -398,7 +363,7 @@ static void  __exit exit_sys_submitjob(void)
 	if (sysptr != NULL)
 		sysptr = NULL;
 	destroy_workqueue(common_queue);
-	destroy_workqueue(common_priority_queue);
+	//destroy_workqueue(common_priority_queue);
 	printk("removed sys_submitjob module\n");
 }
 

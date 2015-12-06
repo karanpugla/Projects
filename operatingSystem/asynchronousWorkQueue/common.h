@@ -29,9 +29,8 @@ Sigfunc * Signal(int signo, Sigfunc *func);
 
 
 //jb priority
-#define NORMAL_PRIORITY  1
-#define HIGH_PRIORITY  2
-#define MAXJOBPRIORITY 3
+#define MAXJOBPRIORITY 100
+#define MINJOBPRIORITY 1
 
 struct jobRequest_t{
 	int action;
