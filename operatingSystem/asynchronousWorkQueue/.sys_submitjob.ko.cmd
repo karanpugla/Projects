@@ -1,1 +1,0 @@
-cmd_/usr/src/hw3-cse506g19/hw3/sys_submitjob.ko := ld -r -m elf_i386 -T ./scripts/module-common.lds   -o /usr/src/hw3-cse506g19/hw3/sys_submitjob.ko /usr/src/hw3-cse506g19/hw3/sys_submitjob.o /usr/src/hw3-cse506g19/hw3/sys_submitjob.mod.o
