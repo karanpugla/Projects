@@ -1,0 +1,115 @@
+---------------------------------
+HOMEWORK 1
+File Encryption/Decryption Module
+---------------------------------
+Karan Pugla
+SBU ID: 110452661
+
+
+
+FILES:
+------
+All files are under directory
+vl84:/usr/src/hw1-kpugla/hw1
+
+sys_xcrypt.c xcipher.c Makefile include/xcrypt_common.h kernel.config README install_module.sh
+
+
+USAGE:
+------
+cd /usr/src/hw1-kpugla/hw1
+
+If no cipheralgo is provided AES is assumed by default
+USAGE: xcipher [-h] <-e|-d> [-c aes] -p<passphrase> <input> <output>
+    -e|-d:    Encrypt or Decrypt input file
+    -c:       Cipher algo(aes, blowfish supported)
+    -p:       Atlease 6 character long passphrase
+    -h:       Print this usage.
+    <input>:  Input filename.
+    <output>: Output filename.
+Example:
+ENCRYPTION: ./xcipher -e -c aes -p password ./inputfile ./outputfile
+DECRYPTION: ./xcipher -d -c aes -p password ./inputfile ./outputfile
+
+EXTRA_CREDIT:
+- Comment/uncomment the line 
+    #CFLAGS_sys_xcrypt.o := -DEXTRA_CREDIT
+  in Make file to disable/enable support for Blowfish cipher.
+- cbc(aes) and cbc(blowfish) supported.
+- IV initialization with page no. and inode no.
+- If padding is done during encryption, number of bytes padded is stored in preamble. 
+  So, to overcome the issue of "Endiannes" htonl and ntohl are used for storing/retrieving padcount.
+- Output file cleanup  and error handling. 
+- To save kernel stack space, most of the variables like user arguments, strings, etc are dynamically allocated.
+- Robust error handling in user space application using 'getopt' argument parsing.
+
+RELEASE NOTE:
+-------------
+- The output behavior is just like 'cp' command.
+- Symlinks are followed by default for both input and output.
+- Output file will be created if it did not exist with 'same permissions' as of input file.
+- If output file already existed, only the contents will be overwritten permissions remain same. 
+- Cases are handled when input and output files are same,or input/output files are not regular files.
+- Temporary outfput file is used for writing to achieve 'all or nothing' behavior.    
+- In case of error, output file if existed is not touched, only the temp file is cleaned up.
+- Multiple ciphers, AES and BLOWFISH are supported.
+- Preamble consists of key,IV, cipheralgo and padding count.
+- Key received from user space is hashed using crypto API MD5 before saving into preamble.
+- Invalid password is handled also, if user provide cipher algo for decryption but file was encrypted with different algo,
+  case is handled.
+- Input files which are not multiples of cipher block size, when  their last page is  encountered, it is padded and padcount is  stored in preamble.
+
+
+- Return values and Errors:
+    EINVAL - If used provides NULL arg, wring args like short passphrase, unsupported cipheralgo, wrong file-type.
+    EFAULT - If arguments from user space cannot be copied in kernel space.
+    ENOMEM - Errors from kmalloc
+    EBUSY - Input and output are same
+    EISDIR - Input or output is a directory
+    EAGAIN - Cipher cannot be allocated.
+    EIO    - Error during I/O loop.
+    EACCES - Invalid password.
+
+DESIGN:
+-------
+- From user space, module receives a struct of type xcrypt_arg_t.
+  This structure holds pointer to strings in use space. These strings are first copied into kernel space with
+  proper error checking of NULL pointer or invalid size.
+  strncpy_from_user is used make copying strings from user robust.
+  Passphrase must be 16 bits and cipher algo must be one of AES or BLOWFISH.
+- Once input and output files are ready for I/O after error checking, a read/write loop begins.
+- IV is a struct of size 16 bytes.
+    - Its first member is 8 byte long which will hold page no. of buffer to be encrypted
+    - Its second member is also 8 byte long which will hold inode no. of file
+- Read/Write loop for ENCRYPTION:
+    - A PAGE_SIZE buffer is allocated.
+    - IV pageno is initialized with page no. of buffer by shifting buffer pointer to right by PAGE_SHIFT
+      and inode num is initialized from input file's inode number.
+    - Space for preamble is made in output file by writing sizeof(xcrypt_preamble_t) size to output.
+    - Encrypted content will be written after this preamble.
+    - Input is read until an error occurs or end of file is reached.
+    - If error occured got to cleanup
+    - If end of file occured, everything is ok. So go back to preamble and fill it.
+    - User passphrase hashed with MD5, and preamble is filled with hashed key,iv, cipheralgo and padcount.
+    - If at anytime input read is of size length less than PAGE_SIZE, that means we are at last page of input, so 
+      pad and encrypt.
+
+- Read/Write loop for DECRYPTION:
+    - Read preamble from file. It's error if it cannot be read
+    - Read key from preamble and compare it with hashed use provided passphrase.
+    - If matched, then compare cipheralgo in preamble with user requested cipheralgo.
+    - Continue only if cipheralgo in preamble matched with cipheralgo in preamble.
+    - Keep reading and decrypting file until end of file is reached.
+    - If at any time read length is less than PAGE_SIZE, it's an error because encrypted file must always
+      be a multiple of PAGE_SIZE lenght long.
+    - At the end of decryption, if preamble says input file was padded, then truncated the file to the size of 
+      input size minus padcount.
+    
+- If encryption/decryption done successfully, rename temporary file to output file given by user
+- In case of any error, remove temporary file. Also remove output file if it didn't exist before we started.
+
+REFERENCE
+----------
+- Linux kernel documentation and htmldocs
+- Linux kernel source
+
