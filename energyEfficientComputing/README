@@ -1,5 +1,5 @@
-A Python API to control and configure HAProxy. Interfaced HAProxy and Linux system monitoring using Python to
-dynamically offload web application traffic.
+A Python API to control and configure HAProxy. 
+Interfaced HAProxy and Linux system monitoring using Python to dynamically offload web application traffic.
 A low powered device like Raspberry Pi provides great cost
 and energy savings, however it cannot perform computationally
 intensive tasks. A good way to combine cost and energy
