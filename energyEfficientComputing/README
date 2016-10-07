@@ -1,0 +1,15 @@
+A Python API to control and configure HAProxy. Interfaced HAProxy and Linux system monitoring using Python to
+dynamically offload web application traffic.
+A low powered device like Raspberry Pi provides great cost
+and energy savings, however it cannot perform computationally
+intensive tasks. A good way to combine cost and energy
+savings while not compromising on performance is to do of-
+floading wherein the Pi performs tasks locally as much as it
+can support, post which it offloads to remote machines. A
+load balancer on the Pi would decide when to offload, how
+much to offload and the duration of the offloading. In this
+paper, we are proposing a dynamic offloading algorithm to
+dynamically offload CPU intensive as well as Memory intensive
+workloads. We also provide a sensitivity analysis to
+evaluate the impact of request rates and number of requests
+on overall Response Time.
